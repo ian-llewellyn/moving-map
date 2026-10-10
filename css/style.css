@@ -6,6 +6,11 @@
   box-sizing: border-box;
 }
 
+/* Author `display` rules below would otherwise override the UA [hidden] rule. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
