@@ -1,0 +1,341 @@
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #000;
+  color: #fff;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+a {
+  color: #fff;
+}
+
+/* ------------------------------------------------------------- main map */
+
+body.main {
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#map {
+  position: fixed;
+  inset: 0;
+  display: block;
+  touch-action: none;
+}
+
+.corner {
+  position: fixed;
+  top: max(8px, env(safe-area-inset-top));
+  right: max(8px, env(safe-area-inset-right));
+  z-index: 5;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+
+#menu {
+  position: fixed;
+  top: calc(max(8px, env(safe-area-inset-top)) + 48px);
+  right: max(8px, env(safe-area-inset-right));
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.9);
+  overflow: hidden;
+}
+
+#menu a {
+  padding: 12px 18px;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+#menu a:last-child {
+  border-bottom: none;
+}
+
+#banner {
+  position: fixed;
+  left: 50%;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100% - 24px);
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.85);
+  font-size: 14px;
+}
+
+#banner button,
+button {
+  font: inherit;
+  color: #000;
+  background: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* -------------------------------------------------------- start overlay */
+
+#start {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  background: #000;
+  text-align: center;
+}
+
+#start h1 {
+  font-size: 34px;
+  letter-spacing: 0.4em;
+  margin: 0;
+  text-indent: 0.4em;
+}
+
+#start button {
+  font-size: 20px;
+  padding: 14px 40px;
+}
+
+#start p {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ---------------------------------------------------------- airfields */
+
+body.page {
+  overflow: hidden;
+}
+
+.panel {
+  position: fixed;
+  z-index: 5;
+  top: max(8px, env(safe-area-inset-top));
+  left: max(8px, env(safe-area-inset-left));
+  width: min(340px, calc(100% - 16px));
+  max-height: calc(100% - 16px);
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.82);
+  font-size: 14px;
+}
+
+.panel h1 {
+  font-size: 16px;
+  margin: 0 0 4px;
+  letter-spacing: 0.1em;
+}
+
+.panel h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 16px 0 6px;
+}
+
+.panel .back {
+  font-size: 12px;
+}
+
+.panel input[type="text"] {
+  width: 100%;
+  padding: 8px;
+  font: inherit;
+  color: #fff;
+  background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 6px;
+}
+
+.panel .controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.panel .controls button {
+  padding: 7px 10px;
+  font-size: 13px;
+}
+
+#status {
+  margin-top: 8px;
+  min-height: 2.6em;
+  color: #ffe000;
+  line-height: 1.3;
+}
+
+#list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+#list .name {
+  flex: 1 1 100%;
+  font-weight: 600;
+}
+
+#list .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+#list .actions button {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+#list .item.target .name::after {
+  content: " \2605";
+}
+
+#list .muted {
+  color: rgba(255, 255, 255, 0.5);
+  border: none;
+}
+
+.zoom {
+  position: fixed;
+  right: max(8px, env(safe-area-inset-right));
+  bottom: max(8px, env(safe-area-inset-bottom));
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.zoom button {
+  width: 44px;
+  height: 44px;
+  font-size: 22px;
+  line-height: 1;
+}
+
+#attribution {
+  position: fixed;
+  right: max(8px, env(safe-area-inset-right));
+  bottom: calc(max(8px, env(safe-area-inset-bottom)) + 104px);
+  z-index: 4;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.65);
+  text-shadow: 0 0 3px #000;
+  text-align: right;
+}
+
+/* ------------------------------------------------------------ settings */
+
+body.page.settings {
+  overflow: auto;
+}
+
+.sheet {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 24px 18px calc(24px + env(safe-area-inset-bottom));
+}
+
+.sheet h1 {
+  font-size: 18px;
+  letter-spacing: 0.08em;
+}
+
+#settings .row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+#settings input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  accent-color: #fff;
+}
+
+#saved {
+  margin-left: 10px;
+  color: #7CFC00;
+  font-size: 13px;
+}
+
+@media (max-width: 600px) {
+  .panel {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-height: 52%;
+    border-radius: 12px 12px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+  }
+
+  #attribution {
+    top: max(8px, env(safe-area-inset-top));
+    bottom: auto;
+    left: max(8px, env(safe-area-inset-left));
+    right: auto;
+    text-align: left;
+  }
+
+  .zoom {
+    bottom: 54%;
+  }
+}

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="theme-color" content="#000000" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <title>HSI</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon.svg" />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body class="main">
+    <canvas id="map"></canvas>
+
+    <div id="menu-btn" class="corner" role="button" aria-label="Menu">&#8942;</div>
+    <nav id="menu" hidden>
+      <a href="airfields.html">Airfields</a>
+      <a href="settings.html">Settings</a>
+    </nav>
+
+    <div id="banner" hidden>
+      <span id="banner-text"></span>
+      <button id="banner-btn" hidden>Retry</button>
+    </div>
+
+    <div id="start">
+      <h1>HSI</h1>
+      <button id="start-btn">Start</button>
+      <p>
+        <a href="airfields.html">Select target airfield</a> &middot;
+        <a href="settings.html">Settings</a>
+      </p>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="theme-color" content="#000000" />
+    <title>HSI &middot; Airfields</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon.svg" />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body class="page">
+    <canvas id="map"></canvas>
+
+    <section class="panel">
+      <h1>AIRFIELDS</h1>
+      <a class="back" href="index.html">&larr; Back to map</a>
+
+      <h2>New airfield</h2>
+      <input id="name" type="text" placeholder="Airfield name" autocomplete="off" />
+      <p id="status"></p>
+      <div class="controls">
+        <button id="new">New</button>
+        <button id="undo">Undo</button>
+        <button id="clear">Clear</button>
+        <button id="save" disabled>Save</button>
+      </div>
+
+      <h2>Saved</h2>
+      <ul id="list"></ul>
+    </section>
+
+    <div class="zoom">
+      <button id="zoom-in" aria-label="Zoom in">+</button>
+      <button id="zoom-out" aria-label="Zoom out">&minus;</button>
+    </div>
+
+    <div id="attribution"></div>
+
+    <script type="module" src="js/airfields.js"></script>
+  </body>
+</html>
