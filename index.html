@@ -24,11 +24,27 @@
       <a href="airfields.html">Airfields</a>
       <a href="settings.html">Settings</a>
       <button id="fullscreen-btn" type="button">Fullscreen</button>
+      <button id="debug-btn" type="button">Debug</button>
     </nav>
 
     <div id="banner" hidden>
       <span id="banner-text"></span>
       <button id="banner-btn" hidden>Retry</button>
+    </div>
+
+    <div id="debug" hidden>
+      <div class="debug-head">
+        <strong>DEBUG</strong>
+        <span>
+          <span id="debug-copied" class="debug-copied"></span>
+          <button id="debug-copy" type="button">Copy</button>
+          <button id="debug-close" type="button">Close</button>
+        </span>
+      </div>
+      <div id="debug-reason" class="debug-reason"></div>
+      <table id="debug-body" class="debug-table"></table>
+      <div class="debug-logtitle">Event log</div>
+      <pre id="debug-log" class="debug-log"></pre>
     </div>
 
     <div id="start">

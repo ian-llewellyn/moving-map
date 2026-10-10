@@ -124,6 +124,109 @@ button:disabled {
   cursor: default;
 }
 
+/* --------------------------------------------------------------- debug */
+
+#debug {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  overflow: auto;
+  padding: max(12px, env(safe-area-inset-top)) 14px
+    calc(24px + env(safe-area-inset-bottom));
+  background: #000;
+  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.debug-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  letter-spacing: 0.15em;
+}
+
+.debug-head span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.debug-copied {
+  color: #7cfc00;
+  letter-spacing: normal;
+}
+
+.debug-reason {
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 8px;
+  white-space: pre-wrap;
+}
+
+.debug-reason.bad {
+  border-color: #ff4444;
+  color: #ff8080;
+}
+
+.debug-reason.ok {
+  border-color: #7cfc00;
+  color: #b6ffb6;
+}
+
+.debug-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.debug-table th {
+  text-align: left;
+  padding: 10px 0 4px;
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.debug-table td {
+  padding: 3px 0;
+  vertical-align: top;
+}
+
+.debug-table td:first-child {
+  width: 46%;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.debug-table td .ok {
+  color: #7cfc00;
+}
+
+.debug-table td .bad {
+  color: #ff5555;
+}
+
+.debug-table td .warn {
+  color: #ffd24a;
+}
+
+.debug-logtitle {
+  margin: 16px 0 4px;
+  color: rgba(255, 255, 255, 0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+}
+
+.debug-log {
+  margin: 0;
+  white-space: pre-wrap;
+  color: rgba(255, 255, 255, 0.85);
+}
+
 /* -------------------------------------------------------- start overlay */
 
 #start {

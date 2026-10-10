@@ -21,6 +21,14 @@ const startBtn = document.getElementById('start-btn');
 const menuBtn = document.getElementById('menu-btn');
 const menu = document.getElementById('menu');
 const fullscreenBtn = document.getElementById('fullscreen-btn');
+const debugBtn = document.getElementById('debug-btn');
+const debugOverlay = document.getElementById('debug');
+const debugReason = document.getElementById('debug-reason');
+const debugBody = document.getElementById('debug-body');
+const debugLogEl = document.getElementById('debug-log');
+const debugCopyBtn = document.getElementById('debug-copy');
+const debugCloseBtn = document.getElementById('debug-close');
+const debugCopied = document.getElementById('debug-copied');
 
 const state = {
   started: false,
@@ -41,7 +49,23 @@ const state = {
   wakeLockDenied: false,
   watching: false,
   watchId: null,
+  // Diagnostics.
+  geoPermission: 'unknown',
+  lastError: null,
+  lastPos: null,
+  fixCount: 0,
+  lastFixAt: 0,
+  orientationListener: 'none',
+  orientationCount: 0,
+  lastOrientation: null,
+  log: [],
+  lastDebugRender: 0,
 };
+
+function logEvent(msg) {
+  state.log.push(`${new Date().toLocaleTimeString()}  ${msg}`);
+  if (state.log.length > 40) state.log.shift();
+}
 
 let W = 0;
 let H = 0;
@@ -141,10 +165,33 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+if (navigator.permissions && navigator.permissions.query) {
+  navigator.permissions
+    .query({ name: 'geolocation' })
+    .then((status) => {
+      state.geoPermission = status.state;
+      status.onchange = () => {
+        state.geoPermission = status.state;
+        logEvent(`geolocation permission: ${status.state}`);
+      };
+    })
+    .catch(() => {});
+}
+
 function onPosition(pos) {
   const c = pos.coords;
+  const first = !state.plane;
   state.gpsError = false;
   state.plane = { lat: c.latitude, lon: c.longitude, accuracy: c.accuracy };
+  state.lastPos = {
+    heading: c.heading,
+    speed: c.speed,
+    accuracy: c.accuracy,
+    altitude: c.altitude,
+  };
+  state.fixCount++;
+  state.lastFixAt = performance.now();
+  if (first) logEvent('first GPS fix');
 
   const last = state.track[state.track.length - 1];
   if (
@@ -160,6 +207,8 @@ function onPosition(pos) {
 function onPositionError(err) {
   if (err.code === err.PERMISSION_DENIED) state.gpsDenied = true;
   else state.gpsError = true;
+  state.lastError = { code: err.code, message: err.message };
+  logEvent(`GPS error ${err.code}: ${err.message}`);
   updateBanner();
 }
 
@@ -183,6 +232,18 @@ function startGeolocation() {
 /* -------------------------------------------------------------- heading */
 
 function onOrientation(e) {
+  const firstEvent = state.orientationCount === 0;
+  state.orientationCount++;
+  state.lastOrientation = {
+    type: e.type,
+    alpha: e.alpha,
+    beta: e.beta,
+    gamma: e.gamma,
+    absolute: e.absolute,
+    webkitCompassHeading: e.webkitCompassHeading,
+  };
+  if (first) logEvent(`orientation events: ${e.type} (absolute=${e.absolute})`);
+
   let h = null;
   if (typeof e.webkitCompassHeading === 'number') {
     h = e.webkitCompassHeading;
@@ -449,6 +510,11 @@ function frame(now) {
   drawCompass(heading);
   if (state.started && !state.plane) drawWaiting();
 
+  if (!debugOverlay.hidden && now - state.lastDebugRender > 250) {
+    state.lastDebugRender = now;
+    renderDebug();
+  }
+
   requestAnimationFrame(frame);
 }
 
@@ -483,11 +549,16 @@ async function start() {
   startGeolocation();
   if ('DeviceOrientationEvent' in window) {
     if ('ondeviceorientationabsolute' in window) {
+      state.orientationListener = 'deviceorientationabsolute';
       window.addEventListener('deviceorientationabsolute', onOrientation, true);
     } else {
+      state.orientationListener = 'deviceorientation';
       window.addEventListener('deviceorientation', onOrientation, true);
     }
+  } else {
+    state.orientationListener = 'unsupported';
   }
+  logEvent(`started; orientation=${state.orientationListener}`);
 }
 
 startBtn.addEventListener('click', start);
@@ -504,6 +575,151 @@ menuBtn.addEventListener('click', () => {
 fullscreenBtn.addEventListener('click', requestFullscreen);
 menu.addEventListener('click', (e) => {
   if (e.target.tagName === 'A' || e.target.tagName === 'BUTTON') menu.hidden = true;
+});
+
+/* ----------------------------------------------------------------- debug */
+
+const COMPASS_FRESH_MS = 2500;
+
+function msAgo(t) {
+  return t == null ? 'n/a' : Math.round(performance.now() - t) + ' ms ago';
+}
+
+function displayMode() {
+  if (window.matchMedia('(display-mode: fullscreen)').matches) return 'fullscreen';
+  if (window.matchMedia('(display-mode: standalone)').matches) return 'standalone';
+  return 'browser';
+}
+
+function buildReport() {
+  const compassFresh =
+    state.compassHeading != null &&
+    performance.now() - state.compassAt < COMPASS_FRESH_MS;
+  const pathLen = pathLengthMeters(state.track);
+  const fit = bestFitHeading(state.track);
+  const heading = state.started ? currentHeading() : null;
+  const unavailable = state.started && state.plane && heading == null;
+
+  let reason;
+  let reasonCls = '';
+  if (!state.started) {
+    reason = 'Not started.';
+  } else if (!state.plane) {
+    reason = 'No GPS fix yet.';
+  } else if (heading != null) {
+    reasonCls = 'ok';
+    reason = compassFresh
+      ? 'Heading OK (compass).'
+      : 'Heading OK (direction of travel).';
+  } else {
+    reasonCls = 'bad';
+    const why = [];
+    if (state.orientationListener === 'none') why.push('sensors not started');
+    else if (state.orientationListener === 'unsupported')
+      why.push('DeviceOrientation unsupported');
+    else if (state.orientationCount === 0)
+      why.push('0 orientation events received');
+    else if (!compassFresh) why.push('compass stale');
+    why.push(
+      `track ${state.track.length} pts / ${Math.round(pathLen)} m (need 2 pts / 40 m)`
+    );
+    reason = 'HEADING UNAVAILABLE \u2192 screen flashes red.\n\u2022 ' + why.join('\n\u2022 ');
+  }
+
+  const lo = state.lastOrientation || {};
+  const rows = [
+    { h: 'Environment' },
+    { l: 'Secure context', v: String(window.isSecureContext), c: window.isSecureContext ? 'ok' : 'bad' },
+    { l: 'Protocol / display', v: `${location.protocol} \u00b7 ${displayMode()}` },
+    { l: 'Fullscreen element', v: document.fullscreenElement ? document.fullscreenElement.tagName : 'none' },
+    { l: 'Service worker', v: navigator.serviceWorker && navigator.serviceWorker.controller ? 'active' : 'none' },
+    { l: 'Online', v: String(navigator.onLine) },
+    { h: 'Geolocation' },
+    { l: 'Permission', v: state.geoPermission, c: state.geoPermission === 'granted' ? 'ok' : 'warn' },
+    { l: 'Fixes', v: String(state.fixCount) },
+    { l: 'Last fix', v: msAgo(state.lastFixAt || null) },
+    { l: 'Accuracy', v: state.lastPos && state.lastPos.accuracy != null ? Math.round(state.lastPos.accuracy) + ' m' : 'n/a' },
+    { l: 'coords.heading', v: state.lastPos ? String(state.lastPos.heading) : 'n/a' },
+    { l: 'Speed', v: state.lastPos && state.lastPos.speed != null ? state.lastPos.speed + ' m/s' : 'n/a' },
+    { l: 'Last error', v: state.lastError ? `code ${state.lastError.code}: ${state.lastError.message}` : 'none', c: state.lastError ? 'bad' : '' },
+    { h: 'Orientation' },
+    { l: 'Listener', v: state.orientationListener },
+    { l: 'Events', v: String(state.orientationCount), c: state.orientationCount ? 'ok' : 'bad' },
+    { l: 'Last event', v: msAgo(state.compassAt || null) },
+    { l: 'alpha / beta / gamma', v: `${lo.alpha} / ${lo.beta} / ${lo.gamma}` },
+    { l: 'absolute', v: String(lo.absolute) },
+    { l: 'webkitCompassHeading', v: String(lo.webkit) },
+    { l: 'Computed compassHeading', v: state.compassHeading == null ? 'null' : state.compassHeading.toFixed(1) },
+    { h: 'Heading logic' },
+    { l: 'Compass fresh', v: String(compassFresh), c: compassFresh ? 'ok' : 'warn' },
+    { l: 'Track points', v: String(state.track.length) },
+    { l: 'Path length', v: Math.round(pathLen) + ' m' },
+    { l: 'Best-fit heading', v: fit == null ? 'null' : fit.toFixed(1) },
+    { l: 'currentHeading()', v: heading == null ? 'null' : heading.toFixed(1), c: heading == null ? 'bad' : 'ok' },
+    { l: 'Red flash active', v: String(unavailable), c: unavailable ? 'bad' : 'ok' },
+    { h: 'Storage' },
+    { l: 'Airfields', v: String(state.airfields.length) },
+    { l: 'Target', v: (state.airfields.find((a) => a.id === state.targetId) || {}).name || 'none' },
+  ];
+
+  const textLines = [reason, ''];
+  for (const r of rows) {
+    if (r.h) textLines.push(`[${r.h}]`);
+    else textLines.push(`${r.l}: ${r.v}`);
+  }
+  textLines.push('', 'Log:', ...state.log);
+
+  return { reason, reasonCls, rows, text: textLines.join('\n') };
+}
+
+function renderDebug() {
+  const { reason, reasonCls, rows } = buildReport();
+  debugReason.textContent = reason;
+  debugReason.className = 'debug-reason' + (reasonCls ? ' ' + reasonCls : '');
+
+  const frag = document.createDocumentFragment();
+  for (const r of rows) {
+    const tr = document.createElement('tr');
+    if (r.h) {
+      const th = document.createElement('th');
+      th.colSpan = 2;
+      th.textContent = r.h;
+      tr.appendChild(th);
+    } else {
+      const td1 = document.createElement('td');
+      td1.textContent = r.l;
+      const td2 = document.createElement('td');
+      const span = document.createElement('span');
+      if (r.c) span.className = r.c;
+      span.textContent = r.v;
+      td2.appendChild(span);
+      tr.append(td1, td2);
+    }
+    frag.appendChild(tr);
+  }
+  debugBody.replaceChildren(frag);
+  debugLogEl.textContent = state.log.join('\n');
+}
+
+debugBtn.addEventListener('click', () => {
+  debugOverlay.hidden = false;
+  renderDebug();
+});
+
+debugCloseBtn.addEventListener('click', () => {
+  debugOverlay.hidden = true;
+});
+
+debugCopyBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(buildReport().text);
+    debugCopied.textContent = 'Copied';
+  } catch {
+    debugCopied.textContent = 'Copy failed';
+  }
+  setTimeout(() => {
+    debugCopied.textContent = '';
+  }, 1500);
 });
 
 /* ------------------------------------------------------------------ boot */
