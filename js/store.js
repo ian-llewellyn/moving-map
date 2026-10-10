@@ -9,6 +9,10 @@ const KEYS = {
 export const DEFAULT_SETTINGS = {
   showTownPoints: true,
   showTownNames: true,
+  // Hide circles below this town radius (metres).
+  townCircleMinM: 350,
+  // Hide names below this town radius (metres).
+  townNameMinM: 500,
   showAirfields: true,
   showAirfieldNames: true,
 };

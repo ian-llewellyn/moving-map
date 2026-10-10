@@ -1,5 +1,5 @@
 // Offline app-shell cache. Bump CACHE when assets change.
-const CACHE = 'hsi-v6';
+const CACHE = 'hsi-v7';
 const ASSETS = [
   './',
   './index.html',

@@ -382,13 +382,15 @@ function onScreen(p, margin) {
 
 function drawTowns(heading) {
   if (!state.settings.showTownPoints && !state.settings.showTownNames) return;
+  const circleMinM = Number(state.settings.townCircleMinM) || 0;
+  const nameMinM = Number(state.settings.townNameMinM) || 0;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.lineWidth = 1;
   for (const t of state.towns) {
     const p = enuScreen(t.lat, t.lon, heading);
     if (!onScreen(p, 120)) continue;
-    if (state.settings.showTownPoints) {
+    if (state.settings.showTownPoints && t.radiusKm * 1000 >= circleMinM) {
       const r = (t.radiusKm * 1000) / state.mpp;
       ctx.beginPath();
       if (r < 2) {
@@ -401,7 +403,7 @@ function drawTowns(heading) {
         ctx.stroke();
       }
     }
-    if (state.settings.showTownNames) {
+    if (state.settings.showTownNames && t.radiusKm * 1000 >= nameMinM) {
       ctx.font = '500 12px system-ui, sans-serif';
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
       ctx.fillText(t.name, p.x + 4, p.y - 4);

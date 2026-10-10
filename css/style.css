@@ -418,6 +418,44 @@ body.page.settings {
   gap: 12px;
   padding: 14px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  flex-wrap: wrap;
+}
+
+#settings .row-label {
+  flex: 1;
+}
+
+#settings .threshold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+#settings .threshold-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+#settings .threshold input[type="number"] {
+  width: 5.5em;
+  padding: 7px 8px;
+  text-align: right;
+  background: #000;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 6px;
+  font: inherit;
+}
+
+#settings .threshold input[type="number"]:disabled {
+  opacity: 0.4;
+}
+
+#settings .threshold-unit {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
 }
 
 #settings input[type="checkbox"] {
