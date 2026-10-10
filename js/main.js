@@ -58,6 +58,14 @@ const state = {
   orientationListener: 'none',
   orientationCount: 0,
   lastOrientation: null,
+  // AbsoluteOrientationSensor (fused accel + gyro + magnetometer).
+  orientationSensor: null,
+  sensorStatus: 'idle',
+  sensorError: null,
+  sensorHeading: null,
+  sensorAt: 0,
+  sensorCount: 0,
+  sensorFirstAt: 0,
   log: [],
   lastDebugRender: 0,
 };
@@ -196,7 +204,8 @@ function onPosition(pos) {
   const last = state.track[state.track.length - 1];
   if (
     !last ||
-    distanceMeters(last.lat, last.lon, c.latitude, c.longitude) >= 8
+    distanceMeters(last.lat, last.lon, c.latitude, c.longitude) >=
+      CONFIG.trackSampleMeters
   ) {
     state.track.push({ lat: c.latitude, lon: c.longitude });
     if (state.track.length > 12) state.track.shift();
@@ -242,7 +251,7 @@ function onOrientation(e) {
     absolute: e.absolute,
     webkitCompassHeading: e.webkitCompassHeading,
   };
-  if (first) logEvent(`orientation events: ${e.type} (absolute=${e.absolute})`);
+  if (firstEvent) logEvent(`orientation events: ${e.type} (absolute=${e.absolute})`);
 
   let h = null;
   if (typeof e.webkitCompassHeading === 'number') {
@@ -257,13 +266,100 @@ function onOrientation(e) {
   state.compassAt = performance.now();
 }
 
+// AbsoluteOrientationSensor gives a fused, high-rate quaternion (device ->
+// East-North-Up). The bearing of the screen's top edge, projected onto the
+// horizontal plane, is the heading we want; tilt is ignored.
+function headingFromQuaternion(q) {
+  if (!q) return null;
+  const [x, y, z, w] = q;
+  const east = 2 * (x * y - z * w);
+  const north = 1 - 2 * (x * x + z * z);
+  if (east === 0 && north === 0) return null;
+  return normalizeDeg((Math.atan2(east, north) * 180) / Math.PI);
+}
+
+function onSensorReading() {
+  const sensor = state.orientationSensor;
+  if (!state.sensorFirstAt) state.sensorFirstAt = performance.now();
+  const h = headingFromQuaternion(sensor.quaternion);
+  if (h == null) return;
+  state.sensorHeading = h;
+  state.sensorAt = performance.now();
+  state.sensorCount++;
+}
+
+function startOrientationSensor() {
+  if (!('AbsoluteOrientationSensor' in window)) {
+    state.sensorStatus = 'unsupported';
+    return;
+  }
+  try {
+    state.orientationSensor = new AbsoluteOrientationSensor({
+      frequency: CONFIG.sensorFrequency,
+      referenceFrame: 'screen',
+    });
+  } catch (err) {
+    state.sensorStatus = 'error';
+    state.sensorError = `${err.name}: ${err.message}`;
+    logEvent(`orientation sensor failed: ${state.sensorError}`);
+    return;
+  }
+  state.orientationSensor.onreading = onSensorReading;
+  state.orientationSensor.onerror = (e) => {
+    state.sensorStatus = 'error';
+    state.sensorError = (e.error && e.error.name) || 'error';
+    logEvent(`orientation sensor error: ${state.sensorError}`);
+  };
+  try {
+    state.orientationSensor.start();
+    state.sensorStatus = 'started';
+  } catch (err) {
+    state.sensorStatus = 'error';
+    state.sensorError = err.name;
+    logEvent(`orientation sensor start failed: ${state.sensorError}`);
+  }
+}
+
 function currentHeading() {
-  if (state.compassHeading != null && performance.now() - state.compassAt < 2500) {
+  const now = performance.now();
+  if (
+    state.sensorHeading != null &&
+    now - state.sensorAt < CONFIG.headingFreshMs
+  ) {
+    return state.sensorHeading;
+  }
+  if (
+    state.compassHeading != null &&
+    now - state.compassAt < CONFIG.headingFreshMs
+  ) {
     return state.compassHeading;
   }
   const fit = bestFitHeading(state.track);
-  if (fit != null && pathLengthMeters(state.track) >= 40) return fit;
+  if (fit != null && pathLengthMeters(state.track) >= CONFIG.trackMinMeters) {
+    return fit;
+  }
   return null;
+}
+
+function headingSource() {
+  const now = performance.now();
+  if (
+    state.sensorHeading != null &&
+    now - state.sensorAt < CONFIG.headingFreshMs
+  ) {
+    return 'orientation sensor';
+  }
+  if (
+    state.compassHeading != null &&
+    now - state.compassAt < CONFIG.headingFreshMs
+  ) {
+    return 'deviceorientation';
+  }
+  const fit = bestFitHeading(state.track);
+  if (fit != null && pathLengthMeters(state.track) >= CONFIG.trackMinMeters) {
+    return 'track best-fit';
+  }
+  return 'none';
 }
 
 /* -------------------------------------------------------------- render */
@@ -558,7 +654,10 @@ async function start() {
   } else {
     state.orientationListener = 'unsupported';
   }
-  logEvent(`started; orientation=${state.orientationListener}`);
+  startOrientationSensor();
+  logEvent(
+    `started; orientation=${state.orientationListener}; sensor=${state.sensorStatus}`
+  );
 }
 
 startBtn.addEventListener('click', start);
@@ -579,10 +678,14 @@ menu.addEventListener('click', (e) => {
 
 /* ----------------------------------------------------------------- debug */
 
-const COMPASS_FRESH_MS = 2500;
-
 function msAgo(t) {
   return t == null ? 'n/a' : Math.round(performance.now() - t) + ' ms ago';
+}
+
+function rateHz(count, firstAt) {
+  if (!count || !firstAt) return 'n/a';
+  const secs = (performance.now() - firstAt) / 1000;
+  return secs > 0 ? (count / secs).toFixed(1) + ' Hz' : 'n/a';
 }
 
 function displayMode() {
@@ -592,12 +695,16 @@ function displayMode() {
 }
 
 function buildReport() {
+  const now = performance.now();
   const compassFresh =
     state.compassHeading != null &&
-    performance.now() - state.compassAt < COMPASS_FRESH_MS;
+    now - state.compassAt < CONFIG.headingFreshMs;
+  const sensorFresh =
+    state.sensorHeading != null && now - state.sensorAt < CONFIG.headingFreshMs;
   const pathLen = pathLengthMeters(state.track);
   const fit = bestFitHeading(state.track);
   const heading = state.started ? currentHeading() : null;
+  const source = state.started ? headingSource() : 'none';
   const unavailable = state.started && state.plane && heading == null;
 
   let reason;
@@ -608,22 +715,24 @@ function buildReport() {
     reason = 'No GPS fix yet.';
   } else if (heading != null) {
     reasonCls = 'ok';
-    reason = compassFresh
-      ? 'Heading OK (compass).'
-      : 'Heading OK (direction of travel).';
+    reason = `Heading OK (${source}).`;
   } else {
     reasonCls = 'bad';
     const why = [];
-    if (state.orientationListener === 'none') why.push('sensors not started');
-    else if (state.orientationListener === 'unsupported')
-      why.push('DeviceOrientation unsupported');
-    else if (state.orientationCount === 0)
+    if (state.orientationListener === 'none' && state.sensorStatus === 'idle')
+      why.push('sensors not started');
+    else if (state.sensorStatus === 'error')
+      why.push(`orientation sensor ${state.sensorError || 'error'}`);
+    else if (state.orientationCount === 0 && state.sensorCount === 0)
       why.push('0 orientation events received');
-    else if (!compassFresh) why.push('compass stale');
+    else if (!compassFresh && !sensorFresh) why.push('all sensors stale');
     why.push(
-      `track ${state.track.length} pts / ${Math.round(pathLen)} m (need 2 pts / 40 m)`
+      `track ${state.track.length} pts / ${Math.round(pathLen)} m (need 2 pts / ${
+        CONFIG.trackMinMeters
+      } m)`
     );
-    reason = 'HEADING UNAVAILABLE \u2192 screen flashes red.\n\u2022 ' + why.join('\n\u2022 ');
+    reason =
+      'HEADING UNAVAILABLE \u2192 screen flashes red.\n\u2022 ' + why.join('\n\u2022 ');
   }
 
   const lo = state.lastOrientation || {};
@@ -642,20 +751,27 @@ function buildReport() {
     { l: 'coords.heading', v: state.lastPos ? String(state.lastPos.heading) : 'n/a' },
     { l: 'Speed', v: state.lastPos && state.lastPos.speed != null ? state.lastPos.speed + ' m/s' : 'n/a' },
     { l: 'Last error', v: state.lastError ? `code ${state.lastError.code}: ${state.lastError.message}` : 'none', c: state.lastError ? 'bad' : '' },
-    { h: 'Orientation' },
+    { h: 'Orientation sensor' },
+    { l: 'AbsoluteOrientationSensor', v: state.sensorStatus, c: state.sensorStatus === 'started' ? 'ok' : state.sensorStatus === 'unsupported' ? 'warn' : 'bad' },
+    { l: 'Sensor error', v: state.sensorError || 'none', c: state.sensorError ? 'bad' : '' },
+    { l: 'Readings', v: String(state.sensorCount), c: state.sensorCount ? 'ok' : 'bad' },
+    { l: 'Rate', v: rateHz(state.sensorCount, state.sensorFirstAt) },
+    { l: 'Last reading', v: msAgo(state.sensorAt || null) },
+    { l: 'Sensor heading', v: state.sensorHeading == null ? 'null' : state.sensorHeading.toFixed(1), c: sensorFresh ? 'ok' : 'warn' },
+    { h: 'DeviceOrientation' },
     { l: 'Listener', v: state.orientationListener },
-    { l: 'Events', v: String(state.orientationCount), c: state.orientationCount ? 'ok' : 'bad' },
+    { l: 'Events', v: String(state.orientationCount), c: state.orientationCount ? 'ok' : 'warn' },
     { l: 'Last event', v: msAgo(state.compassAt || null) },
     { l: 'alpha / beta / gamma', v: `${lo.alpha} / ${lo.beta} / ${lo.gamma}` },
     { l: 'absolute', v: String(lo.absolute) },
     { l: 'webkitCompassHeading', v: String(lo.webkit) },
-    { l: 'Computed compassHeading', v: state.compassHeading == null ? 'null' : state.compassHeading.toFixed(1) },
+    { l: 'Computed compassHeading', v: state.compassHeading == null ? 'null' : state.compassHeading.toFixed(1), c: compassFresh ? 'ok' : 'warn' },
     { h: 'Heading logic' },
-    { l: 'Compass fresh', v: String(compassFresh), c: compassFresh ? 'ok' : 'warn' },
     { l: 'Track points', v: String(state.track.length) },
-    { l: 'Path length', v: Math.round(pathLen) + ' m' },
+    { l: 'Path length', v: Math.round(pathLen) + ` m (need ${CONFIG.trackMinMeters})` },
     { l: 'Best-fit heading', v: fit == null ? 'null' : fit.toFixed(1) },
     { l: 'currentHeading()', v: heading == null ? 'null' : heading.toFixed(1), c: heading == null ? 'bad' : 'ok' },
+    { l: 'Source', v: source, c: source === 'none' ? 'bad' : 'ok' },
     { l: 'Red flash active', v: String(unavailable), c: unavailable ? 'bad' : 'ok' },
     { h: 'Storage' },
     { l: 'Airfields', v: String(state.airfields.length) },
