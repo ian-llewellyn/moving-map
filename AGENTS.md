@@ -1,0 +1,5 @@
+- Commit using model name
+- Do not update documentation uless explicitly approved
+- Always be brief: interactions with user, commit messages, code comments
+- No system-wide changes: packages, configuration, tooling
+- Access to rootless podman available if necessary for test tooling
