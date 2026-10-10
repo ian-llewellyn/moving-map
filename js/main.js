@@ -357,19 +357,27 @@ function drawPlane() {
   ctx.fill();
 }
 
+// Figures slide around the outer edge of the display, one every 10 degrees.
 function drawCompass(heading) {
   const cx = W * 0.5;
   const cy = H * 0.5;
-  const r = Math.min(W, H) / 2 - 18;
+  const margin = 24;
+  const hx = Math.max(1, W * 0.5 - margin);
+  const hy = Math.max(1, H * 0.5 - margin);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = '700 16px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(255,255,255,0.9)';
   for (let deg = 0; deg < 360; deg += 10) {
     const rel = toRad(deg - heading);
-    const x = cx + r * Math.sin(rel);
-    const y = cy - r * Math.cos(rel);
-    ctx.fillText(String(deg), x, y);
+    const dx = Math.sin(rel);
+    const dy = -Math.cos(rel);
+    // Scale the ray until it meets the inset screen border.
+    const t = Math.min(
+      hx / Math.max(Math.abs(dx), 1e-6),
+      hy / Math.max(Math.abs(dy), 1e-6)
+    );
+    ctx.fillText(String(deg), cx + t * dx, cy + t * dy);
   }
 }
 
