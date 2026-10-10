@@ -20,6 +20,7 @@ const startOverlay = document.getElementById('start');
 const startBtn = document.getElementById('start-btn');
 const menuBtn = document.getElementById('menu-btn');
 const menu = document.getElementById('menu');
+const fullscreenBtn = document.getElementById('fullscreen-btn');
 
 const state = {
   started: false,
@@ -120,8 +121,24 @@ async function acquireWakeLock() {
   updateBanner();
 }
 
+// Best-effort fullscreen; may be rejected without a user gesture.
+function requestFullscreen() {
+  const el = document.documentElement;
+  const fn = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (!fn) return;
+  try {
+    const result = fn.call(el, { navigationUI: 'hide' });
+    if (result && result.catch) result.catch(() => {});
+  } catch {
+    /* ignore */
+  }
+}
+
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') acquireWakeLock();
+  if (document.visibilityState === 'visible') {
+    acquireWakeLock();
+    if (state.started && !document.fullscreenElement) requestFullscreen();
+  }
 });
 
 function onPosition(pos) {
@@ -453,13 +470,7 @@ async function start() {
   if (state.started) return;
   state.started = true;
   startOverlay.hidden = true;
-  try {
-    const el = document.documentElement;
-    if (el.requestFullscreen) await el.requestFullscreen();
-    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-  } catch {
-    /* fullscreen is best-effort */
-  }
+  requestFullscreen();
   await acquireWakeLock();
   startGeolocation();
   if ('DeviceOrientationEvent' in window) {
@@ -482,6 +493,7 @@ bannerBtn.addEventListener('click', () => {
 menuBtn.addEventListener('click', () => {
   menu.hidden = !menu.hidden;
 });
+fullscreenBtn.addEventListener('click', requestFullscreen);
 menu.addEventListener('click', (e) => {
   if (e.target.tagName === 'A' || e.target.tagName === 'BUTTON') menu.hidden = true;
 });

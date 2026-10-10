@@ -81,6 +81,16 @@ body.main {
   border-bottom: none;
 }
 
+#menu button {
+  padding: 12px 18px;
+  text-align: left;
+  color: #fff;
+  background: transparent;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 0;
+}
+
 #banner {
   position: fixed;
   left: 50%;
