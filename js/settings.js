@@ -21,6 +21,8 @@ const FIELDS = [
   },
   { key: 'showAirfields', label: 'Show airfields and patterns' },
   { key: 'showAirfieldNames', label: 'Show airfield names' },
+  { key: 'showStaticAirfields', label: 'Show OSM airfields (magenta)' },
+  { key: 'showStaticAirfieldNames', label: 'Show OSM airfield names' },
 ];
 
 let savedTimer = null;

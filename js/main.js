@@ -42,6 +42,7 @@ const state = {
   airfields: store.getAirfields(),
   settings: store.getSettings(),
   towns: [],
+  staticAirfields: [],
   hitTargets: [],
   gpsDenied: false,
   gpsError: false,
@@ -104,6 +105,16 @@ async function loadTowns() {
     state.towns = Array.isArray(data) ? data : data.places || [];
   } catch {
     state.towns = [];
+  }
+}
+
+async function loadStaticAirfields() {
+  try {
+    const res = await fetch(CONFIG.airfieldDataUrl, { cache: 'force-cache' });
+    const data = await res.json();
+    state.staticAirfields = Array.isArray(data) ? data : data.airfields || [];
+  } catch {
+    state.staticAirfields = [];
   }
 }
 
@@ -484,14 +495,111 @@ function drawAirfields(heading) {
   }
 }
 
+// Simple aeroplane glyph pointing "up" then rotated by `angle` (radians,
+// clockwise on screen).
+function drawPlaneGlyph(x, y, angle, size, colour) {
+  const s = size / 16;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.beginPath();
+  ctx.moveTo(0, -16 * s);
+  ctx.lineTo(-11 * s, 12 * s);
+  ctx.lineTo(0, 6 * s);
+  ctx.lineTo(11 * s, 12 * s);
+  ctx.closePath();
+  ctx.fillStyle = colour;
+  ctx.fill();
+  ctx.restore();
+}
+
+// Static OSM airfields: aeroplane marker plus one fixed-length line per
+// runway (deliberately not to scale).
+function drawStaticAirfields(heading) {
+  const show = state.settings.showStaticAirfields;
+  const showNames = state.settings.showStaticAirfieldNames;
+  if (!show && !showNames) return;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  const colour = '#f4f';
+  for (const af of state.staticAirfields) {
+    const c = enuScreen(af.lat, af.lon, heading);
+    if (!onScreen(c, 120)) continue;
+    const isTarget = af.id === state.targetId;
+    const runways = af.runways || [];
+    if (show) {
+      for (const rw of runways) {
+        const a = toRad(rw.hdg - heading);
+        const dx = Math.sin(a) * 22;
+        const dy = -Math.cos(a) * 22;
+        ctx.beginPath();
+        ctx.moveTo(c.x - dx, c.y - dy);
+        ctx.lineTo(c.x + dx, c.y + dy);
+        ctx.strokeStyle = colour;
+        ctx.lineWidth = isTarget ? 3 : 2;
+        ctx.stroke();
+      }
+      let glyphAngle = 0;
+      if (runways.length) {
+        const longest = runways.reduce((m, r) => (r.lengthM > m.lengthM ? r : m));
+        glyphAngle = toRad(longest.hdg - heading);
+      }
+      drawPlaneGlyph(c.x, c.y, glyphAngle, isTarget ? 15 : 12, colour);
+      if (isTarget) {
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, 16, 0, Math.PI * 2);
+        ctx.strokeStyle = colour;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+    state.hitTargets.push({
+      x: c.x,
+      y: c.y,
+      id: af.id,
+      name: af.name || af.icao || 'unnamed airfield',
+    });
+    if (showNames && af.name) {
+      ctx.font = '500 13px system-ui, sans-serif';
+      ctx.fillStyle = colour;
+      ctx.fillText(af.name, c.x + 8, c.y - 10);
+    }
+  }
+}
+
+function findAirfield(id) {
+  return (
+    state.airfields.find((a) => a.id === id) ||
+    state.staticAirfields.find((a) => a.id === id) ||
+    null
+  );
+}
+
 function drawTrackLine(heading) {
-  const af = state.airfields.find((a) => a.id === state.targetId);
-  if (!af || !af.pattern || af.pattern.length < 2) return;
-  const near = nearestOnPattern(state.plane.lat, state.plane.lon, af.pattern);
-  if (!near) return;
-  const rel = Math.atan2(near.east, near.north) - toRad(heading);
-  const x = W * 0.5 + (near.distance / state.mpp) * Math.sin(rel);
-  const y = H * 0.9 - (near.distance / state.mpp) * Math.cos(rel);
+  if (!state.plane) return;
+  const af = findAirfield(state.targetId);
+  if (!af) return;
+  let east;
+  let north;
+  let distance;
+  const pattern = af.pattern || [];
+  if (pattern.length >= 2) {
+    const near = nearestOnPattern(state.plane.lat, state.plane.lon, pattern);
+    if (!near) return;
+    east = near.east;
+    north = near.north;
+    distance = near.distance;
+  } else {
+    const enu = toENU(af.lat, af.lon, state.plane.lat, state.plane.lon);
+    east = enu.e;
+    north = enu.n;
+    distance = Math.hypot(east, north);
+  }
+  const rel = Math.atan2(east, north) - toRad(heading);
+  const x = W * 0.5 + (distance / state.mpp) * Math.sin(rel);
+  const y = H * 0.9 - (distance / state.mpp) * Math.cos(rel);
   ctx.save();
   ctx.setLineDash([6, 6]);
   ctx.strokeStyle = 'rgba(255,255,255,0.8)';
@@ -504,16 +612,7 @@ function drawTrackLine(heading) {
 }
 
 function drawPlane() {
-  const x = W * 0.5;
-  const y = H * 0.9;
-  ctx.beginPath();
-  ctx.moveTo(x, y - 16);
-  ctx.lineTo(x - 11, y + 12);
-  ctx.lineTo(x, y + 6);
-  ctx.lineTo(x + 11, y + 12);
-  ctx.closePath();
-  ctx.fillStyle = '#ffffff';
-  ctx.fill();
+  drawPlaneGlyph(W * 0.5, H * 0.9, 0, 16, '#ffffff');
 }
 
 // Figures slide around the outer edge of the display, one every 10 degrees.
@@ -602,6 +701,7 @@ function frame(now) {
   if (state.started && state.plane) {
     drawTowns(heading);
     drawAirfields(heading);
+    drawStaticAirfields(heading);
     drawTrackLine(heading);
   }
   drawPlane();
@@ -619,7 +719,7 @@ function frame(now) {
 /* ------------------------------------------------------------------ taps */
 
 function onCanvasTap(clientX, clientY) {
-  if (!state.airfields.length) return;
+  if (!state.hitTargets.length) return;
   let best = null;
   for (const t of state.hitTargets) {
     const d = Math.hypot(t.x - clientX, t.y - clientY);
@@ -776,8 +876,9 @@ function buildReport() {
     { l: 'Source', v: source, c: source === 'none' ? 'bad' : 'ok' },
     { l: 'Red flash active', v: String(unavailable), c: unavailable ? 'bad' : 'ok' },
     { h: 'Storage' },
-    { l: 'Airfields', v: String(state.airfields.length) },
-    { l: 'Target', v: (state.airfields.find((a) => a.id === state.targetId) || {}).name || 'none' },
+    { l: 'Airfields (traced)', v: String(state.airfields.length) },
+    { l: 'Airfields (OSM)', v: String(state.staticAirfields.length) },
+    { l: 'Target', v: (findAirfield(state.targetId) || {}).name || 'none' },
   ];
 
   const textLines = [reason, ''];
@@ -844,6 +945,7 @@ debugCopyBtn.addEventListener('click', async () => {
 
 resize();
 loadTowns();
+loadStaticAirfields();
 requestAnimationFrame(frame);
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

@@ -3,6 +3,8 @@
 export const CONFIG = {
   // Static villages/towns/cities dataset (built by tools/fetch_towns.py).
   townDataUrl: 'data/towns.json',
+  // Static airfields dataset (built by tools/fetch_airfields.py).
+  airfieldDataUrl: 'data/airfields.json',
 
   // Satellite imagery used only on the (online) airfields page.
   mapMinZoom: 3,

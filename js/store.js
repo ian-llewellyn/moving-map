@@ -15,6 +15,9 @@ export const DEFAULT_SETTINGS = {
   townNameMinM: 500,
   showAirfields: true,
   showAirfieldNames: true,
+  // Static OSM airfields (aeroplane markers + runway lines).
+  showStaticAirfields: true,
+  showStaticAirfieldNames: true,
 };
 
 function read(key, fallback) {
