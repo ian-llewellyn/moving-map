@@ -2,6 +2,7 @@ import { CONFIG } from './config.js';
 import * as store from './store.js';
 import {
   toRad,
+  toDeg,
   normalizeDeg,
   signedAngleDiff,
   distanceMeters,
@@ -39,6 +40,7 @@ const state = {
   track: [],
   mpp: 0,
   targetId: store.getTarget(),
+  zoomTargetId: undefined,
   airfields: store.getAirfields(),
   settings: store.getSettings(),
   towns: [],
@@ -584,29 +586,36 @@ function findAirfield(id) {
   );
 }
 
+// Position of the target relative to the plane: nearest point on the traced
+// pattern, else the field centre (static OSM fields). Shared by the guide
+// line and the dynamic zoom so they always agree.
+function targetRelative(af) {
+  if (!state.plane || !af) return null;
+  const pattern = af.pattern || [];
+  if (pattern.length >= 2) {
+    const near = nearestOnPattern(state.plane.lat, state.plane.lon, pattern);
+    if (near) return near;
+  }
+  if (typeof af.lat !== 'number' || typeof af.lon !== 'number') return null;
+  const enu = toENU(af.lat, af.lon, state.plane.lat, state.plane.lon);
+  const distance = Math.hypot(enu.e, enu.n);
+  return {
+    east: enu.e,
+    north: enu.n,
+    distance,
+    bearing: normalizeDeg(toDeg(Math.atan2(enu.e, enu.n))),
+  };
+}
+
 function drawTrackLine(heading) {
   if (!state.plane) return;
   const af = findAirfield(state.targetId);
   if (!af) return;
-  let east;
-  let north;
-  let distance;
-  const pattern = af.pattern || [];
-  if (pattern.length >= 2) {
-    const near = nearestOnPattern(state.plane.lat, state.plane.lon, pattern);
-    if (!near) return;
-    east = near.east;
-    north = near.north;
-    distance = near.distance;
-  } else {
-    const enu = toENU(af.lat, af.lon, state.plane.lat, state.plane.lon);
-    east = enu.e;
-    north = enu.n;
-    distance = Math.hypot(east, north);
-  }
-  const rel = Math.atan2(east, north) - toRad(heading);
-  const x = W * 0.5 + (distance / state.mpp) * Math.sin(rel);
-  const y = H * 0.9 - (distance / state.mpp) * Math.cos(rel);
+  const rel0 = targetRelative(af);
+  if (!rel0) return;
+  const rel = Math.atan2(rel0.east, rel0.north) - toRad(heading);
+  const x = W * 0.5 + (rel0.distance / state.mpp) * Math.sin(rel);
+  const y = H * 0.9 - (rel0.distance / state.mpp) * Math.cos(rel);
   ctx.save();
   ctx.setLineDash([6, 6]);
   ctx.strokeStyle = 'rgba(255,255,255,0.8)';
@@ -675,21 +684,30 @@ function frame(now) {
   const unavailable = state.started && state.plane && rawHeading == null;
   const heading = state.dispHeading == null ? 0 : state.dispHeading;
 
-  // Dynamic zoom when aligned with the target.
+  // Dynamic zoom, for any target (traced pattern point or static field
+  // centre). When the target changes, jump part of the way immediately so
+  // selection has a visible effect; otherwise servo while aligned.
   if (state.plane && state.mpp) {
-    const af = state.airfields.find((a) => a.id === state.targetId);
-    if (af && af.pattern && af.pattern.length >= 2 && rawHeading != null) {
-      const near = nearestOnPattern(state.plane.lat, state.plane.lon, af.pattern);
-      if (
-        near &&
-        near.distance > 30 &&
-        Math.abs(signedAngleDiff(heading, near.bearing)) <= CONFIG.zoomAlignDeg
-      ) {
-        const desired = near.distance / (CONFIG.zoomTargetFraction * 0.9 * H);
-        const clamped = Math.max(CONFIG.minMpp, Math.min(CONFIG.maxMpp, desired));
-        const k = 1 - Math.pow(0.3, dt);
-        state.mpp += (clamped - state.mpp) * k;
+    if (state.targetId !== state.zoomTargetId) {
+      state.zoomTargetId = state.targetId;
+      const rel = targetRelative(findAirfield(state.targetId));
+      if (rel) {
+        const fit = rel.distance / (CONFIG.zoomTargetFraction * 0.9 * H);
+        const clamped = Math.max(CONFIG.minMpp, Math.min(CONFIG.maxMpp, fit));
+        state.mpp += (clamped - state.mpp) * CONFIG.zoomReframe;
       }
+    }
+    const af = findAirfield(state.targetId);
+    const rel = af && rawHeading != null ? targetRelative(af) : null;
+    if (
+      rel &&
+      rel.distance > 30 &&
+      Math.abs(signedAngleDiff(heading, rel.bearing)) <= CONFIG.zoomAlignDeg
+    ) {
+      const desired = rel.distance / (CONFIG.zoomTargetFraction * 0.9 * H);
+      const clamped = Math.max(CONFIG.minMpp, Math.min(CONFIG.maxMpp, desired));
+      const k = 1 - Math.pow(0.3, dt);
+      state.mpp += (clamped - state.mpp) * k;
     }
   }
 

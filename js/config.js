@@ -29,6 +29,8 @@ export const CONFIG = {
   zoomAlignDeg: 60,
   // Screen fraction of the visible area the target should occupy when aligned.
   zoomTargetFraction: 0.72,
+  // Fraction of the way to jump toward the fit when the target changes.
+  zoomReframe: 0.6,
   minMpp: 0.3,
   maxMpp: 3000,
 };
