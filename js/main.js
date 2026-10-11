@@ -57,6 +57,7 @@ const state = {
   fixCount: 0,
   lastFixAt: 0,
   orientationListener: 'none',
+  orientationPermission: 'unknown',
   orientationCount: 0,
   lastOrientation: null,
   // AbsoluteOrientationSensor (fused accel + gyro + magnetometer).
@@ -131,7 +132,12 @@ function setBanner(text, showButton) {
 }
 
 function updateBanner() {
-  if (state.gpsDenied || state.gpsError) {
+  if (state.orientationPermission === 'denied') {
+    setBanner(
+      'Motion access denied. Enable Motion & Orientation Access for this browser, then Retry.',
+      true
+    );
+  } else if (state.gpsDenied || state.gpsError) {
     setBanner(
       state.gpsDenied
         ? 'Location permission denied.'
@@ -261,6 +267,7 @@ function onOrientation(e) {
     gamma: e.gamma,
     absolute: e.absolute,
     webkitCompassHeading: e.webkitCompassHeading,
+    webkitCompassAccuracy: e.webkitCompassAccuracy,
   };
   if (firstEvent) logEvent(`orientation events: ${e.type} (absolute=${e.absolute})`);
 
@@ -738,36 +745,71 @@ canvas.addEventListener('click', (e) => onCanvasTap(e.clientX, e.clientY));
 
 /* ----------------------------------------------------------------- start */
 
+// iOS 13+ gates DeviceOrientation behind a permission prompt that must be
+// requested from inside a user gesture, before any await. Without it iOS
+// delivers no orientation events at all and heading falls back to GPS track.
+async function requestOrientationPermission() {
+  if (
+    typeof DeviceOrientationEvent === 'undefined' ||
+    typeof DeviceOrientationEvent.requestPermission !== 'function'
+  ) {
+    state.orientationPermission = 'not-required';
+    return;
+  }
+  try {
+    state.orientationPermission =
+      await DeviceOrientationEvent.requestPermission();
+  } catch {
+    state.orientationPermission = 'denied';
+  }
+  logEvent(`orientation permission: ${state.orientationPermission}`);
+}
+
+// Listen to both events where available: WebKit uses plain deviceorientation
+// (with webkitCompassHeading), Chromium also offers deviceorientationabsolute.
+function attachOrientationListeners() {
+  if (typeof DeviceOrientationEvent === 'undefined') {
+    state.orientationListener = 'unsupported';
+    return;
+  }
+  window.addEventListener('deviceorientation', onOrientation, true);
+  state.orientationListener = 'deviceorientation';
+  if ('ondeviceorientationabsolute' in window) {
+    window.addEventListener('deviceorientationabsolute', onOrientation, true);
+    state.orientationListener = 'deviceorientation+absolute';
+  }
+}
+
 async function start() {
   if (state.started) return;
   state.started = true;
   startOverlay.hidden = true;
+  // requestFullscreen stays first and synchronous (needs the gesture);
+  // the permission prompt is then the first await, still inside the gesture.
   requestFullscreen();
+  await requestOrientationPermission();
   await acquireWakeLock();
   startGeolocation();
-  if ('DeviceOrientationEvent' in window) {
-    if ('ondeviceorientationabsolute' in window) {
-      state.orientationListener = 'deviceorientationabsolute';
-      window.addEventListener('deviceorientationabsolute', onOrientation, true);
-    } else {
-      state.orientationListener = 'deviceorientation';
-      window.addEventListener('deviceorientation', onOrientation, true);
-    }
-  } else {
-    state.orientationListener = 'unsupported';
-  }
+  attachOrientationListeners();
   startOrientationSensor();
+  updateBanner();
   logEvent(
-    `started; orientation=${state.orientationListener}; sensor=${state.sensorStatus}`
+    `started; orientation=${state.orientationListener}` +
+      ` (${state.orientationPermission}); sensor=${state.sensorStatus}`
   );
 }
 
 startBtn.addEventListener('click', start);
 
-bannerBtn.addEventListener('click', () => {
+bannerBtn.addEventListener('click', async () => {
   state.gpsDenied = false;
+  if (state.orientationPermission === 'denied') {
+    await requestOrientationPermission();
+    attachOrientationListeners();
+  }
   startGeolocation();
   acquireWakeLock();
+  updateBanner();
 });
 
 menuBtn.addEventListener('click', () => {
@@ -821,7 +863,11 @@ function buildReport() {
   } else {
     reasonCls = 'bad';
     const why = [];
-    if (state.orientationListener === 'none' && state.sensorStatus === 'idle')
+    if (state.orientationPermission === 'denied')
+      why.push(
+        'motion access denied (enable Motion & Orientation Access, then retry)'
+      );
+    else if (state.orientationListener === 'none' && state.sensorStatus === 'idle')
       why.push('sensors not started');
     else if (state.sensorStatus === 'error')
       why.push(`orientation sensor ${state.sensorError || 'error'}`);
@@ -862,11 +908,13 @@ function buildReport() {
     { l: 'Sensor heading', v: state.sensorHeading == null ? 'null' : state.sensorHeading.toFixed(1), c: sensorFresh ? 'ok' : 'warn' },
     { h: 'DeviceOrientation' },
     { l: 'Listener', v: state.orientationListener },
+    { l: 'Permission', v: state.orientationPermission, c: state.orientationPermission === 'denied' ? 'bad' : state.orientationPermission === 'not-required' ? 'ok' : 'warn' },
     { l: 'Events', v: String(state.orientationCount), c: state.orientationCount ? 'ok' : 'warn' },
     { l: 'Last event', v: msAgo(state.compassAt || null) },
     { l: 'alpha / beta / gamma', v: `${lo.alpha} / ${lo.beta} / ${lo.gamma}` },
     { l: 'absolute', v: String(lo.absolute) },
-    { l: 'webkitCompassHeading', v: String(lo.webkit) },
+    { l: 'webkitCompassHeading', v: String(lo.webkitCompassHeading) },
+    { l: 'webkitCompassAccuracy', v: String(lo.webkitCompassAccuracy) },
     { l: 'Computed compassHeading', v: state.compassHeading == null ? 'null' : state.compassHeading.toFixed(1), c: compassFresh ? 'ok' : 'warn' },
     { h: 'Heading logic' },
     { l: 'Track points', v: String(state.track.length) },
