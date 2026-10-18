@@ -21,7 +21,6 @@ const startOverlay = document.getElementById('start');
 const startBtn = document.getElementById('start-btn');
 const menuBtn = document.getElementById('menu-btn');
 const menu = document.getElementById('menu');
-const fullscreenBtn = document.getElementById('fullscreen-btn');
 const debugBtn = document.getElementById('debug-btn');
 const debugOverlay = document.getElementById('debug');
 const debugReason = document.getElementById('debug-reason');
@@ -875,7 +874,6 @@ bannerBtn.addEventListener('click', async () => {
 menuBtn.addEventListener('click', () => {
   menu.hidden = !menu.hidden;
 });
-fullscreenBtn.addEventListener('click', requestFullscreen);
 menu.addEventListener('click', (e) => {
   if (e.target.tagName === 'A' || e.target.tagName === 'BUTTON') menu.hidden = true;
 });
