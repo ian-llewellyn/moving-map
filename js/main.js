@@ -45,6 +45,7 @@ const state = {
   settings: store.getSettings(),
   towns: [],
   staticAirfields: [],
+  regionCounts: {},
   hitTargets: [],
   gpsDenied: false,
   gpsError: false,
@@ -101,24 +102,41 @@ window.addEventListener('orientationchange', resize);
 
 /* ------------------------------------------------------------ input data */
 
-async function loadTowns() {
-  try {
-    const res = await fetch(CONFIG.townDataUrl, { cache: 'force-cache' });
-    const data = await res.json();
-    state.towns = Array.isArray(data) ? data : data.places || [];
-  } catch {
-    state.towns = [];
-  }
+// Load the static datasets for every region enabled in settings. A region
+// that fails to load (offline before it was ever cached) is simply skipped.
+function regionItems(doc, key) {
+  if (Array.isArray(doc)) return doc;
+  return doc[key] || [];
 }
 
-async function loadStaticAirfields() {
-  try {
-    const res = await fetch(CONFIG.airfieldDataUrl, { cache: 'force-cache' });
-    const data = await res.json();
-    state.staticAirfields = Array.isArray(data) ? data : data.airfields || [];
-  } catch {
-    state.staticAirfields = [];
-  }
+async function loadRegionData() {
+  const enabled = CONFIG.regions.filter((r) => state.settings.regions.includes(r.code));
+  const towns = [];
+  const airfields = [];
+  state.regionCounts = {};
+  await Promise.all(
+    enabled.map(async (region) => {
+      try {
+        const [townDoc, airfieldDoc] = await Promise.all([
+          fetch(region.towns, { cache: 'force-cache' }).then((r) => r.json()),
+          fetch(region.airfields, { cache: 'force-cache' }).then((r) => r.json()),
+        ]);
+        const regionTowns = regionItems(townDoc, 'places');
+        const regionAirfields = regionItems(airfieldDoc, 'airfields');
+        towns.push(...regionTowns);
+        airfields.push(...regionAirfields);
+        state.regionCounts[region.code] = {
+          towns: regionTowns.length,
+          airfields: regionAirfields.length,
+        };
+      } catch {
+        state.regionCounts[region.code] = null;
+        logEvent(`region ${region.code} data unavailable`);
+      }
+    })
+  );
+  state.towns = towns;
+  state.staticAirfields = airfields;
 }
 
 /* ----------------------------------------------------------- permissions */
@@ -400,14 +418,36 @@ function onScreen(p, margin) {
   return p.x >= -m && p.x <= W + m && p.y >= -m && p.y <= H + m;
 }
 
+// Lat/lon window covering everything that can land on screen (plus margin).
+// Lets the per-frame loops reject distant points with plain comparisons
+// instead of a projection per point.
+function viewWindow(marginPx) {
+  const m = marginPx == null ? 120 : marginPx;
+  const radius = (Math.hypot(W, H) * 0.5 + m) * state.mpp;
+  const dLat = radius / 111320;
+  const dLon = radius / (111320 * Math.max(0.05, Math.cos(toRad(state.plane.lat))));
+  return {
+    latMin: state.plane.lat - dLat,
+    latMax: state.plane.lat + dLat,
+    lonMin: state.plane.lon - dLon,
+    lonMax: state.plane.lon + dLon,
+  };
+}
+
+function inWindow(p, w) {
+  return p.lat >= w.latMin && p.lat <= w.latMax && p.lon >= w.lonMin && p.lon <= w.lonMax;
+}
+
 function drawTowns(heading) {
   if (!state.settings.showTownPoints && !state.settings.showTownNames) return;
   const circleMinM = Number(state.settings.townCircleMinM) || 0;
   const nameMinM = Number(state.settings.townNameMinM) || 0;
+  const window = viewWindow(120);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.lineWidth = 1;
   for (const t of state.towns) {
+    if (!inWindow(t, window)) continue;
     const p = enuScreen(t.lat, t.lon, heading);
     if (!onScreen(p, 120)) continue;
     if (state.settings.showTownPoints && t.radiusKm * 1000 >= circleMinM) {
@@ -533,7 +573,9 @@ function drawStaticAirfields(heading) {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   const colour = '#f4f';
+  const window = viewWindow(120);
   for (const af of state.staticAirfields) {
+    if (!inWindow(af, window)) continue;
     const c = enuScreen(af.lat, af.lon, heading);
     if (!onScreen(c, 120)) continue;
     const isTarget = af.id === state.targetId;
@@ -944,6 +986,17 @@ function buildReport() {
     { h: 'Storage' },
     { l: 'Airfields (traced)', v: String(state.airfields.length) },
     { l: 'Airfields (OSM)', v: String(state.staticAirfields.length) },
+    { l: 'Towns / villages', v: String(state.towns.length) },
+    ...CONFIG.regions.map((region) => {
+      const counts = state.regionCounts[region.code];
+      if (counts === undefined) return { l: region.name, v: 'off' };
+      if (counts === null) return { l: region.name, v: 'unavailable', c: 'warn' };
+      return {
+        l: region.name,
+        v: `${counts.towns} towns / ${counts.airfields} airfields`,
+        c: 'ok',
+      };
+    }),
     { l: 'Target', v: (findAirfield(state.targetId) || {}).name || 'none' },
   ];
 
@@ -1010,8 +1063,7 @@ debugCopyBtn.addEventListener('click', async () => {
 /* ------------------------------------------------------------------ boot */
 
 resize();
-loadTowns();
-loadStaticAirfields();
+loadRegionData();
 requestAnimationFrame(frame);
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

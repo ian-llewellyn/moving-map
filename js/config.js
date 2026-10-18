@@ -1,10 +1,31 @@
 // Shared configuration. Kept dependency-free so every page can import it.
 
+// Per-country static datasets (built by tools/fetch_towns.py and
+// tools/fetch_airfields.py). All are enabled by default; each can be
+// deselected on the settings page.
+export const REGIONS = [
+  {
+    code: 'ie',
+    name: 'Ireland',
+    towns: 'data/towns.ie.json',
+    airfields: 'data/airfields.ie.json',
+  },
+  {
+    code: 'gb',
+    name: 'Great Britain',
+    towns: 'data/towns.gb.json',
+    airfields: 'data/airfields.gb.json',
+  },
+  {
+    code: 'fr',
+    name: 'France',
+    towns: 'data/towns.fr.json',
+    airfields: 'data/airfields.fr.json',
+  },
+];
+
 export const CONFIG = {
-  // Static villages/towns/cities dataset (built by tools/fetch_towns.py).
-  townDataUrl: 'data/towns.json',
-  // Static airfields dataset (built by tools/fetch_airfields.py).
-  airfieldDataUrl: 'data/airfields.json',
+  regions: REGIONS,
 
   // Satellite imagery used only on the (online) airfields page.
   mapMinZoom: 3,

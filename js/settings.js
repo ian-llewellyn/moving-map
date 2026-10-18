@@ -1,4 +1,5 @@
 import * as store from './store.js';
+import { REGIONS } from './config.js';
 
 const form = document.getElementById('settings');
 const savedEl = document.getElementById('saved');
@@ -97,6 +98,49 @@ function render() {
     if (syncDisabled) syncDisabled();
     form.appendChild(row);
   }
+  renderRegions();
+}
+
+// Per-country datasets. All are downloaded by the service worker; these
+// checkboxes only control which are drawn (applied on next map load).
+function renderRegions() {
+  const heading = document.createElement('div');
+  heading.className = 'group';
+  heading.textContent = 'Map data';
+  form.appendChild(heading);
+
+  for (const region of REGIONS) {
+    const id = 'set-region-' + region.code;
+    const row = document.createElement('div');
+    row.className = 'row';
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.id = id;
+    cb.checked = settings.regions.includes(region.code);
+
+    const label = document.createElement('label');
+    label.className = 'row-label';
+    label.htmlFor = id;
+    label.textContent = region.name;
+
+    cb.addEventListener('change', () => {
+      const set = new Set(settings.regions);
+      if (cb.checked) set.add(region.code);
+      else set.delete(region.code);
+      settings.regions = REGIONS.map((r) => r.code).filter((c) => set.has(c));
+      store.saveSettings(settings);
+      flashSaved();
+    });
+
+    row.append(cb, label);
+    form.appendChild(row);
+  }
+
+  const note = document.createElement('p');
+  note.className = 'note';
+  note.textContent = 'Applies when the map is reloaded.';
+  form.appendChild(note);
 }
 
 function inputListener(cb, key, syncDisabled) {

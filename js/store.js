@@ -1,5 +1,7 @@
 // localStorage-backed persistence for airfields, settings and the target.
 
+import { REGIONS } from './config.js';
+
 const KEYS = {
   airfields: 'hsi.airfields.v1',
   settings: 'hsi.settings.v1',
@@ -18,6 +20,8 @@ export const DEFAULT_SETTINGS = {
   // Static OSM airfields (aeroplane markers + runway lines).
   showStaticAirfields: true,
   showStaticAirfieldNames: true,
+  // Which per-country datasets to load and draw.
+  regions: REGIONS.map((r) => r.code),
 };
 
 function read(key, fallback) {
@@ -52,7 +56,21 @@ export function saveAirfields(list) {
 }
 
 export function getSettings() {
-  return Object.assign({}, DEFAULT_SETTINGS, read(KEYS.settings, {}));
+  const settings = Object.assign({}, DEFAULT_SETTINGS, read(KEYS.settings, {}));
+  // Keep only known region codes; an unrecognised list falls back to default.
+  const known = new Set(REGIONS.map((r) => r.code));
+  if (Array.isArray(settings.regions)) {
+    const kept = settings.regions
+      .map((c) => String(c).toLowerCase())
+      .filter((c) => known.has(c));
+    settings.regions =
+      kept.length || settings.regions.length === 0
+        ? kept
+        : DEFAULT_SETTINGS.regions.slice();
+  } else {
+    settings.regions = DEFAULT_SETTINGS.regions.slice();
+  }
+  return settings;
 }
 
 export function saveSettings(settings) {

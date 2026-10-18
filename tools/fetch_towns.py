@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Fetch the static villages/towns/cities dataset for the island of Ireland.
+"""Fetch the static villages/towns/cities dataset for a region.
 
 Data source: OpenStreetMap via the Overpass API (ODbL).
-Run once at build time:  python3 tools/fetch_towns.py
-Output: data/towns.json
+Run once at build time:  python3 tools/fetch_towns.py [ie gb fr]
+
+Each region is written to data/towns.<code>.json. Regions default to all;
+an existing region file is skipped unless --force is given.
 """
 import json
 import math
@@ -32,6 +34,25 @@ ISLAND_POLY = [
     (55.20, -6.10), (55.20, -7.00), (55.38, -7.37),
 ]
 
+# GB plus the crown dependencies that ISO 3166-1 GB omits (Jersey,
+# Guernsey/Alderney/Sark, Isle of Man); Ireland is subtracted to avoid
+# duplicating Northern Ireland.
+# France is limited to metropolitan France + Corsica by bbox.
+REGIONS = {
+    "ie": {"name": "Ireland", "poly": ISLAND_POLY},
+    "gb": {"name": "Great Britain", "areas": ["GB", "JE", "GG", "IM"],
+           "subtract_poly": ISLAND_POLY},
+    "fr": {"name": "France (metropolitan + Corsica)", "areas": ["FR"],
+           "bbox": (41.0, -5.5, 51.5, 10.0)},
+}
+
+PLACE_FILTER = '["place"~"^(city|town|village)$"]'
+
+# Regions with a bbox are fetched in tiles of this size (degrees) so no
+# single Overpass query is large enough to time out.
+TILE_DEG = 3.0
+FETCH_TIMEOUT = 240
+
 # Fallback radius (km) by OSM place type when population is unknown.
 DEFAULT_RADIUS_KM = {"city": 3.0, "town": 1.0, "village": 0.35}
 
@@ -49,13 +70,50 @@ def radius_km(tags):
     return DEFAULT_RADIUS_KM.get(tags.get("place"), 0.35)
 
 
-def build_query():
-    poly = " ".join(f"{lat} {lon}" for lat, lon in ISLAND_POLY)
-    return (
-        "[out:json][timeout:120];"
-        'node["place"~"^(city|town|village)$"]'
-        f'(poly:"{poly}");out;'
-    )
+def fmt_poly(coords):
+    return " ".join(f"{lat} {lon}" for lat, lon in coords)
+
+
+def tiles_for(bbox):
+    """Cover a bbox with TILE_DEG chunks (s, w, n, e)."""
+    s, w, n, e = bbox
+    tiles = []
+    lat = s
+    while lat < n:
+        top = min(lat + TILE_DEG, n)
+        lon = w
+        while lon < e:
+            right = min(lon + TILE_DEG, e)
+            tiles.append((round(lat, 4), round(lon, 4), round(top, 4), round(right, 4)))
+            lon += TILE_DEG
+        lat += TILE_DEG
+    return tiles
+
+
+def bbox_filter(bbox):
+    return f"({bbox[0]},{bbox[1]},{bbox[2]},{bbox[3]})" if bbox else ""
+
+
+def build_query(region, bbox=None):
+    box = bbox_filter(bbox)
+    out = ["[out:json][timeout:300];"]
+    parts = []
+    if region.get("poly"):
+        parts.append(f'node{PLACE_FILTER}(poly:"{fmt_poly(region["poly"])}"){box};')
+    for i, code in enumerate(region.get("areas", [])):
+        out.append(f'area["ISO3166-1"="{code}"]["admin_level"="2"]->.a{i};')
+        parts.append(f"node{PLACE_FILTER}(area.a{i}){box};")
+    union = "(" + "".join(parts) + ")"
+    if region.get("subtract_poly"):
+        out.append(union + "->.all;")
+        out.append(
+            f'node{PLACE_FILTER}(poly:"{fmt_poly(region["subtract_poly"])}"){box}->.excl;'
+        )
+        out.append("(.all; - .excl;);")
+    else:
+        out.append(union + ";")
+    out.append("out;")
+    return "".join(out)
 
 
 def fetch(query):
@@ -65,24 +123,47 @@ def fetch(query):
         req = urllib.request.Request(
             endpoint, data=body, headers={"User-Agent": UA}
         )
-        for attempt in range(3):
+        for attempt in range(4):
             try:
-                with urllib.request.urlopen(req, timeout=180) as resp:
+                with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as resp:
                     return json.load(resp)
             except (urllib.error.URLError, TimeoutError) as exc:
                 last = exc
                 print(f"{endpoint}: {exc}; retrying", file=sys.stderr)
-                time.sleep(5 * (attempt + 1))
+                time.sleep(min(60, 5 * 2**attempt))
     raise SystemExit(f"Overpass request failed: {last}")
 
 
-def main():
-    data = fetch(build_query())
+def fetch_elements(region):
+    """All elements for a region, tile by tile for bbox regions."""
+    bbox = region.get("bbox")
+    tiles = tiles_for(bbox) if bbox else [None]
+    elements = {}
+    for i, tile in enumerate(tiles):
+        if len(tiles) > 1:
+            print(f"  tile {i + 1}/{len(tiles)} {tile}", file=sys.stderr)
+        doc = fetch(build_query(region, tile))
+        for el in doc.get("elements", []):
+            elements[(el.get("type"), el.get("id"))] = el
+    return list(elements.values())
+
+
+def build(code, force=False):
+    region = REGIONS[code]
+    dest = os.path.join(os.path.dirname(__file__), "..", "data", f"towns.{code}.json")
+    dest = os.path.abspath(dest)
+    if os.path.exists(dest) and not force:
+        print(f"{code}: {dest} exists; skipping (use --force to rebuild)", file=sys.stderr)
+        return
+    elements = fetch_elements(region)
+    bbox = region.get("bbox")
     places = []
     seen = set()
-    for el in data.get("elements", []):
+    for el in elements:
         tags = el.get("tags", {})
         if "lat" not in el or "lon" not in el:
+            continue
+        if bbox and not (bbox[0] <= el["lat"] <= bbox[2] and bbox[1] <= el["lon"] <= bbox[3]):
             continue
         name = tags.get("name")
         if not name:
@@ -104,11 +185,11 @@ def main():
     out = {
         "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "source": "OpenStreetMap contributors (ODbL)",
+        "region": code,
+        "regionName": region["name"],
         "count": len(places),
         "places": places,
     }
-    dest = os.path.join(os.path.dirname(__file__), "..", "data", "towns.json")
-    dest = os.path.abspath(dest)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     with open(dest, "w", encoding="utf-8") as fh:
         json.dump(out, fh, ensure_ascii=False, separators=(",", ":"))
@@ -116,5 +197,15 @@ def main():
     print(f"wrote {len(places)} places to {dest}", file=sys.stderr)
 
 
+def main(argv):
+    force = "--force" in argv
+    codes = [a for a in argv if a != "--force"] or list(REGIONS)
+    for code in codes:
+        if code not in REGIONS:
+            raise SystemExit(f"unknown region {code!r}; choose from {', '.join(REGIONS)}")
+    for code in codes:
+        build(code, force)
+
+
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

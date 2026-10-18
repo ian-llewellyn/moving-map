@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
-"""Build the static airfields dataset from OpenStreetMap (island of Ireland).
+"""Build the static airfields dataset from OpenStreetMap.
 
 Each airfield gets an aeroplane marker plus its runway directions. Derived
-from `aeroway=aerodrome` and `aeroway=runway` within the island polygon.
-Runways that cannot be matched to an aerodrome become unnamed airfields of
-their own, so small strips are still represented.
+from `aeroway=aerodrome` and `aeroway=runway` within the region. Runways
+that cannot be matched to an aerodrome become unnamed airfields of their
+own, so small strips are still represented.
 
-Run once and commit data/airfields.json:
-    python3 tools/fetch_airfields.py
+Regions: ie (island of Ireland), gb (Great Britain + Jersey, Guernsey and
+the Isle of Man, excluding Northern Ireland which is in `ie`), fr
+(metropolitan France + Corsica).
+
+Run once and commit data/airfields.<code>.json:
+    python3 tools/fetch_airfields.py [ie gb fr]
+
+Regions default to all; an existing region file is skipped unless
+--force is given.
 """
 
 import json
@@ -22,8 +29,8 @@ from pathlib import Path
 
 OVERPASS_ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.de/api/interpreter",
-    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
 ]
 
 UA = "hsi-airfields/1.0 (personal moving-map project)"
@@ -38,37 +45,105 @@ ISLAND_POLY = [
     (55.20, -6.10), (55.20, -7.00), (55.38, -7.37),
 ]
 
+REGIONS = {
+    "ie": {"name": "Ireland", "poly": ISLAND_POLY},
+    "gb": {"name": "Great Britain", "areas": ["GB", "JE", "GG", "IM"],
+           "subtract_poly": ISLAND_POLY},
+    "fr": {"name": "France (metropolitan + Corsica)", "areas": ["FR"],
+           "bbox": (41.0, -5.5, 51.5, 10.0)},
+}
+
+AERODROME_FILTER = '["aeroway"~"^(aerodrome|airstrip)$"]'
+
+# Regions with a bbox are fetched in tiles of this size (degrees) so no
+# single Overpass query is large enough to time out.
+TILE_DEG = 3.0
+FETCH_TIMEOUT = 240
+
 MERGE_M = 1200      # merge aerodrome elements (node + area) this close
 MATCH_M = 2500      # assign a runway to the nearest aerodrome within this
 CLUSTER_M = 1500    # group orphan runways this close into one airfield
 EARTH_R = 6371000.0
 
 
-def build_query():
-    poly = " ".join(f"{lat} {lon}" for lat, lon in ISLAND_POLY)
-    return (
-        "[out:json][timeout:180];"
-        "("
-        f'nwr["aeroway"~"^(aerodrome|airstrip)$"](poly:"{poly}");'
-        f'way["aeroway"="runway"](poly:"{poly}");'
-        ");out geom;"
-    )
+def fmt_poly(coords):
+    return " ".join(f"{lat} {lon}" for lat, lon in coords)
 
 
-def fetch_data():
-    body = urllib.parse.urlencode({"data": build_query()}).encode()
+def tiles_for(bbox):
+    """Cover a bbox with TILE_DEG chunks (s, w, n, e)."""
+    s, w, n, e = bbox
+    tiles = []
+    lat = s
+    while lat < n:
+        top = min(lat + TILE_DEG, n)
+        lon = w
+        while lon < e:
+            right = min(lon + TILE_DEG, e)
+            tiles.append((round(lat, 4), round(lon, 4), round(top, 4), round(right, 4)))
+            lon += TILE_DEG
+        lat += TILE_DEG
+    return tiles
+
+
+def bbox_filter(bbox):
+    return f"({bbox[0]},{bbox[1]},{bbox[2]},{bbox[3]})" if bbox else ""
+
+
+def build_query(region, bbox=None):
+    box = bbox_filter(bbox)
+    out = ["[out:json][timeout:300];"]
+    parts = []
+    if region.get("poly"):
+        poly = fmt_poly(region["poly"])
+        parts.append(f'nwr{AERODROME_FILTER}(poly:"{poly}"){box};')
+        parts.append(f'way["aeroway"="runway"](poly:"{poly}"){box};')
+    for i, code in enumerate(region.get("areas", [])):
+        out.append(f'area["ISO3166-1"="{code}"]["admin_level"="2"]->.a{i};')
+        parts.append(f'nwr{AERODROME_FILTER}(area.a{i}){box};')
+        parts.append(f'way["aeroway"="runway"](area.a{i}){box};')
+    union = "(" + "".join(parts) + ")"
+    if region.get("subtract_poly"):
+        poly = fmt_poly(region["subtract_poly"])
+        out.append(union + "->.all;")
+        out.append(f'nwr{AERODROME_FILTER}(poly:"{poly}"){box}->.x1;')
+        out.append(f'way["aeroway"="runway"](poly:"{poly}"){box}->.x2;')
+        out.append("(.x1; .x2;)->.excl;")
+        out.append("(.all; - .excl;);")
+    else:
+        out.append(union + ";")
+    out.append("out geom;")
+    return "".join(out)
+
+
+def fetch_data(query):
+    body = urllib.parse.urlencode({"data": query}).encode()
     last = None
     for endpoint in OVERPASS_ENDPOINTS:
         req = urllib.request.Request(endpoint, data=body, headers={"User-Agent": UA})
-        for attempt in range(3):
+        for attempt in range(4):
             try:
-                with urllib.request.urlopen(req, timeout=240) as resp:
+                with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as resp:
                     return json.load(resp)
             except (urllib.error.URLError, TimeoutError) as exc:
                 last = exc
                 print(f"{endpoint}: {exc}; retrying", file=sys.stderr)
-                time.sleep(5 * (attempt + 1))
+                time.sleep(min(60, 5 * 2**attempt))
     raise SystemExit(f"Overpass request failed: {last}")
+
+
+def fetch_elements(region):
+    """All elements for a region, tile by tile for bbox regions."""
+    bbox = region.get("bbox")
+    tiles = tiles_for(bbox) if bbox else [None]
+    elements = {}
+    for i, tile in enumerate(tiles):
+        if len(tiles) > 1:
+            print(f"  tile {i + 1}/{len(tiles)} {tile}", file=sys.stderr)
+        doc = fetch_data(build_query(region, tile))
+        for el in doc.get("elements", []):
+            elements[(el.get("type"), el.get("id"))] = el
+    return list(elements.values())
 
 
 def haversine(a, b):
@@ -108,6 +183,13 @@ def element_coords(el):
             if "lat" in g and "lon" in g:
                 coords.append((g["lat"], g["lon"]))
     return coords
+
+
+def in_bbox(coords, bbox):
+    return any(
+        bbox[0] <= lat <= bbox[2] and bbox[1] <= lon <= bbox[3]
+        for lat, lon in coords
+    )
 
 
 def centroid(coords):
@@ -160,8 +242,16 @@ def fmt(runways):
     return [{"hdg": r["hdg"], "lengthM": r["lengthM"]} for r in runways]
 
 
-def main():
-    elements = fetch_data().get("elements", [])
+def build(code, force=False):
+    region = REGIONS[code]
+    dest = Path(__file__).resolve().parent.parent / "data" / f"airfields.{code}.json"
+    if dest.exists() and not force:
+        print(f"{code}: {dest} exists; skipping (use --force to rebuild)", file=sys.stderr)
+        return
+    bbox = region.get("bbox")
+    elements = fetch_elements(region)
+    if bbox:
+        elements = [el for el in elements if in_bbox(element_coords(el), bbox)]
 
     aerodromes = []
     runway_ways = []
@@ -258,10 +348,12 @@ def main():
     doc = {
         "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "source": "OpenStreetMap contributors (ODbL)",
+        "region": code,
+        "regionName": region["name"],
         "count": len(airfields),
         "airfields": airfields,
     }
-    dest = Path(__file__).resolve().parent.parent / "data" / "airfields.json"
+    dest = Path(__file__).resolve().parent.parent / "data" / f"airfields.{code}.json"
     dest.write_text(json.dumps(doc, ensure_ascii=False, separators=(",", ":")))
     named = sum(1 for a in airfields if a["name"])
     with_rw = sum(1 for a in airfields if a["runways"])
@@ -272,5 +364,15 @@ def main():
     )
 
 
+def main(argv):
+    force = "--force" in argv
+    codes = [a for a in argv if a != "--force"] or list(REGIONS)
+    for code in codes:
+        if code not in REGIONS:
+            raise SystemExit(f"unknown region {code!r}; choose from {', '.join(REGIONS)}")
+    for code in codes:
+        build(code, force)
+
+
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])
