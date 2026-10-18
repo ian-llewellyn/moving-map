@@ -36,7 +36,8 @@
 
 - Data gathered once during project build - scripted update a bonus, but only if trivial
 - A static set of lat/lon points with a radius in km indicating their relative urban area, and the name
-- Island of Ireland only
+- Ireland, Great Britain and France (metropolitan + Corsica), shipped as one dataset per country
+- Countries are selectable on the settings page (all enabled by default)
 
 ## Deployment Platform
 
