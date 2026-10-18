@@ -259,6 +259,59 @@ button:disabled {
   color: rgba(255, 255, 255, 0.7);
 }
 
+.start-repo {
+  margin-top: -8px;
+  font-size: 13px !important;
+}
+
+.start-repo a {
+  color: rgba(255, 255, 255, 0.8);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.start-repo a:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.start-repo .octicon {
+  display: inline-block;
+  vertical-align: middle;
+  fill: currentColor;
+}
+
+.debug-repo {
+  color: rgba(255, 255, 255, 0.7);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  font-size: 11px;
+  letter-spacing: normal;
+}
+
+.debug-repo:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.debug-repo .octicon {
+  display: inline-block;
+  vertical-align: middle;
+  fill: currentColor;
+}
+
 /* ---------------------------------------------------------- airfields */
 
 body.page {
